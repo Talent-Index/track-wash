@@ -88,6 +88,9 @@ export interface Booking {
   scheduledDate: string;
   scheduledTime: string;
   location?: string;
+  locationLat?: number;
+  locationLng?: number;
+  locationArea?: string;
   status: BookingStatus;
   paymentMethod?: PaymentMethod;
   paymentRef?: string;
