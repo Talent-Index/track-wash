@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useAppStore, servicePackages, ServiceType, PaymentMethod } from '@/store/appStore';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { GoogleMapsProvider, LocationPicker, MapPreview, LocationData } from '@/components/maps';
 
 const steps = [
   { id: 1, title: 'Service Type', icon: Car },
@@ -47,7 +48,7 @@ export default function NewBooking() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
   const [isAsap, setIsAsap] = useState(false);
-  const [location, setLocation] = useState('');
+  const [locationData, setLocationData] = useState<LocationData | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('mpesa');
   
   const [showAddVehicle, setShowAddVehicle] = useState(false);
@@ -89,7 +90,7 @@ export default function NewBooking() {
       case 2: return !!selectedPackage;
       case 3: return !!selectedVehicle;
       case 4: return isAsap || (scheduledDate && scheduledTime);
-      case 5: return serviceType === 'station' || location.length > 0;
+      case 5: return serviceType === 'station' || !!locationData;
       case 6: return true;
       case 7: return !!paymentMethod;
       default: return false;
@@ -151,7 +152,10 @@ export default function NewBooking() {
       totalPrice: total,
       scheduledDate: isAsap ? new Date().toISOString().split('T')[0] : scheduledDate,
       scheduledTime: isAsap ? 'ASAP' : scheduledTime,
-      location: serviceType === 'doorstep' ? location : undefined,
+      location: serviceType === 'doorstep' ? locationData?.formattedAddress : undefined,
+      locationLat: locationData?.lat,
+      locationLng: locationData?.lng,
+      locationArea: locationData?.area,
       status: 'payment_confirmed',
       paymentMethod: method,
       ...(method === 'crypto' ? { txHash: reference } : { mpesaReceipt: reference }),
@@ -420,23 +424,12 @@ export default function NewBooking() {
                 {serviceType === 'doorstep' ? 'Where should we come?' : 'Confirm location'}
               </h2>
               {serviceType === 'doorstep' ? (
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm mb-1.5 block">Address</Label>
-                    <Input
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="e.g., Westlands, near Sarit Centre"
-                      className="input-field"
-                    />
-                  </div>
-                  <div className="h-48 rounded-xl bg-secondary flex items-center justify-center">
-                    <div className="text-center">
-                      <MapPin className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">Map view placeholder</p>
-                    </div>
-                  </div>
-                </div>
+                <GoogleMapsProvider>
+                  <LocationPicker
+                    value={locationData}
+                    onChange={setLocationData}
+                  />
+                </GoogleMapsProvider>
               ) : (
                 <div className="card-elevated p-4">
                   <p className="text-muted-foreground text-sm">
@@ -466,11 +459,16 @@ export default function NewBooking() {
                     {isAsap ? 'ASAP' : `${scheduledDate} at ${scheduledTime}`}
                   </span>
                 </div>
-                {serviceType === 'doorstep' && location && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Location</span>
-                    <span className="font-medium text-foreground text-right max-w-[60%]">{location}</span>
-                  </div>
+                {serviceType === 'doorstep' && locationData && (
+                  <>
+                    <div className="flex justify-between items-start">
+                      <span className="text-muted-foreground">Location</span>
+                      <span className="font-medium text-foreground text-right max-w-[60%]">{locationData.formattedAddress}</span>
+                    </div>
+                    <div className="pt-2">
+                      <MapPreview lat={locationData.lat} lng={locationData.lng} height="120px" />
+                    </div>
+                  </>
                 )}
                 <div className="border-t border-border pt-4 space-y-2">
                   <div className="flex justify-between items-center">

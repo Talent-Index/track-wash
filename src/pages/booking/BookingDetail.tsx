@@ -23,6 +23,7 @@ import { useAppStore, BookingStatus, PaymentMethod } from '@/store/appStore';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ActivityLog } from '@/components/booking/ActivityLog';
+import { MapPreview } from '@/components/maps';
 
 const statusSteps: { status: BookingStatus; label: string; icon: React.ReactNode }[] = [
   { status: 'payment_confirmed', label: 'Payment Confirmed', icon: <DollarSign className="w-4 h-4" /> },
@@ -223,9 +224,19 @@ export default function BookingDetail() {
               <span className="text-foreground">{booking.scheduledDate} at {booking.scheduledTime}</span>
             </div>
             {booking.location && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Location</span>
-                <span className="text-foreground text-right max-w-[60%]">{booking.location}</span>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Location</span>
+                  <span className="text-foreground text-right max-w-[60%]">{booking.location}</span>
+                </div>
+                {booking.locationLat && booking.locationLng && (
+                  <MapPreview 
+                    lat={booking.locationLat} 
+                    lng={booking.locationLng} 
+                    address={booking.location}
+                    height="140px"
+                  />
+                )}
               </div>
             )}
             {booking.detailerName && (
