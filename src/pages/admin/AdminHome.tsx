@@ -11,10 +11,10 @@ export default function AdminHome() {
   const pendingPayouts = payouts.filter((p) => p.status === 'pending').length;
 
   const stats = [
-    { label: "Today's Bookings", value: todayBookings.length, icon: Calendar, color: 'text-primary', link: '/admin/bookings' },
+    { label: "Today's Bookings", value: todayBookings.length, icon: Calendar, color: 'text-primary', link: '/admin/bookings?filter=today' },
     { label: 'Total Revenue', value: `KES ${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-success', link: '/admin/analytics' },
     { label: 'Active Detailers', value: activeDetailers, icon: Users, color: 'text-accent', link: '/admin/detailers' },
-    { label: 'Pending Payouts', value: pendingPayouts, icon: TrendingUp, color: 'text-warning', link: '/admin/payouts' },
+    { label: 'Pending Payouts', value: pendingPayouts, icon: TrendingUp, color: 'text-warning', link: '/admin/payouts?status=pending' },
   ];
 
   return (

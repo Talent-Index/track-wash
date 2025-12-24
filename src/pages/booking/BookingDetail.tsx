@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { useAppStore, BookingStatus, PaymentMethod } from '@/store/appStore';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { ActivityLog } from '@/components/booking/ActivityLog';
 
 const statusSteps: { status: BookingStatus; label: string; icon: React.ReactNode }[] = [
   { status: 'payment_confirmed', label: 'Payment Confirmed', icon: <DollarSign className="w-4 h-4" /> },
@@ -54,7 +55,9 @@ export default function BookingDetail() {
     tipBooking,
     assignDetailer,
     detailers,
-    addEmailLog
+    addEmailLog,
+    emailLogs,
+    updateLoyalty
   } = useAppStore();
 
   const booking = bookings.find((b) => b.id === id);

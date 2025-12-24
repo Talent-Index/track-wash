@@ -16,7 +16,12 @@ import Loyalty from "./pages/Loyalty";
 import History from "./pages/History";
 import Profile from "./pages/Profile";
 import DetailerHome from "./pages/detailer/DetailerHome";
+import DetailerJobs from "./pages/detailer/DetailerJobs";
 import AdminHome from "./pages/admin/AdminHome";
+import AdminBookings from "./pages/admin/AdminBookings";
+import AdminPayouts from "./pages/admin/AdminPayouts";
+import AdminAnalytics from "./pages/admin/AdminAnalytics";
+import AdminDetailers from "./pages/admin/AdminDetailers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -57,18 +62,18 @@ const App = () => (
             
             {/* Detailer */}
             <Route path="/detailer/home" element={<ProtectedRoute allowedRoles={['detailer']}><DetailerHome /></ProtectedRoute>} />
-            <Route path="/detailer/jobs" element={<ProtectedRoute allowedRoles={['detailer']}><DetailerHome /></ProtectedRoute>} />
+            <Route path="/detailer/jobs" element={<ProtectedRoute allowedRoles={['detailer']}><DetailerJobs /></ProtectedRoute>} />
             <Route path="/detailer/job/:id" element={<ProtectedRoute allowedRoles={['detailer']}><BookingDetail /></ProtectedRoute>} />
             <Route path="/detailer/earnings" element={<ProtectedRoute allowedRoles={['detailer']}><DetailerHome /></ProtectedRoute>} />
             <Route path="/detailer/onboarding" element={<Auth />} />
             
             {/* Admin */}
             <Route path="/admin/home" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
-            <Route path="/admin/bookings" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
+            <Route path="/admin/bookings" element={<ProtectedRoute allowedRoles={['admin']}><AdminBookings /></ProtectedRoute>} />
             <Route path="/admin/booking/:id" element={<ProtectedRoute allowedRoles={['admin']}><BookingDetail /></ProtectedRoute>} />
-            <Route path="/admin/payouts" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
-            <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
-            <Route path="/admin/detailers" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
+            <Route path="/admin/payouts" element={<ProtectedRoute allowedRoles={['admin']}><AdminPayouts /></ProtectedRoute>} />
+            <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AdminAnalytics /></ProtectedRoute>} />
+            <Route path="/admin/detailers" element={<ProtectedRoute allowedRoles={['admin']}><AdminDetailers /></ProtectedRoute>} />
             <Route path="/admin/businesses" element={<ProtectedRoute allowedRoles={['admin']}><AdminHome /></ProtectedRoute>} />
             
             <Route path="*" element={<NotFound />} />
