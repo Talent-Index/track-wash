@@ -2,20 +2,29 @@ import { createConfig, http } from 'wagmi';
 import { mainnet, polygon, avalanche, avalancheFuji, arbitrum, base, optimism } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
 
-// WalletConnect Project ID - Get yours at https://cloud.walletconnect.com/
-const projectId = 'trackwash-demo-id'; // Replace with your actual project ID
+// WalletConnect Project ID from environment
+const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'trackwash-demo-id';
 
 export const config = createConfig({
-  chains: [mainnet, polygon, avalanche, avalancheFuji, arbitrum, base, optimism],
+  // Avalanche chains first for TrackWash
+  chains: [avalanche, avalancheFuji, mainnet, polygon, arbitrum, base, optimism],
   connectors: [
     injected(),
-    walletConnect({ projectId }),
+    walletConnect({ 
+      projectId,
+      metadata: {
+        name: 'TrackWash',
+        description: 'On-demand car wash booking with crypto payments',
+        url: typeof window !== 'undefined' ? window.location.origin : 'https://trackwash.app',
+        icons: ['https://trackwash.app/logo.png'],
+      },
+    }),
   ],
   transports: {
-    [mainnet.id]: http(),
-    [polygon.id]: http(),
     [avalanche.id]: http(),
     [avalancheFuji.id]: http(),
+    [mainnet.id]: http(),
+    [polygon.id]: http(),
     [arbitrum.id]: http(),
     [base.id]: http(),
     [optimism.id]: http(),

@@ -11,20 +11,27 @@ import {
   Plus,
   Wallet,
   Phone,
-  Copy,
   Loader2,
   Sparkles,
-  Clock
+  Clock,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useAppStore, servicePackages, ServiceType, PaymentMethod } from '@/store/appStore';
+import { servicePackages, ServiceType, PaymentMethod } from '@/store/appStore';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { GoogleMapsProvider, LocationPicker, MapPreview, LocationData } from '@/components/maps';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { mpesaStkPush, pollMpesaStatus, normalizePhoneNumber, isValidKenyanPhone } from '@/lib/api';
+import { ConnectWalletButton } from '@/components/wallet/ConnectWalletButton';
+import { useAccount } from 'wagmi';
 
 const steps = [
   { id: 1, title: 'Service Type', icon: Car },
@@ -36,10 +43,21 @@ const steps = [
   { id: 7, title: 'Payment', icon: CreditCard },
 ];
 
+type MpesaPaymentState = 'idle' | 'sending_stk' | 'waiting' | 'success' | 'failed' | 'timeout';
+
+interface Vehicle {
+  id: string;
+  make: string;
+  model: string;
+  license_plate: string | null;
+  vehicle_type: string | null;
+}
+
 export default function NewBooking() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { vehicles, currentUser, addVehicle, createBooking, addPayment, updateBookingStatus, addEmailLog, detailers, stations } = useAppStore();
+  const { user, profile } = useAuth();
+  const { address: walletAddress, isConnected: walletConnected, chainId } = useAccount();
   
   const [currentStep, setCurrentStep] = useState(1);
   const [serviceType, setServiceType] = useState<ServiceType>('doorstep');
@@ -53,18 +71,49 @@ export default function NewBooking() {
   
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [newVehiclePlate, setNewVehiclePlate] = useState('');
-  const [newVehicleNickname, setNewVehicleNickname] = useState('');
+  const [newVehicleMake, setNewVehicleMake] = useState('');
+  const [newVehicleModel, setNewVehicleModel] = useState('');
   const [newVehicleType, setNewVehicleType] = useState<'sedan' | 'suv' | 'hatchback' | 'pickup' | 'van'>('sedan');
   
   const [showCryptoModal, setShowCryptoModal] = useState(false);
   const [showMpesaModal, setShowMpesaModal] = useState(false);
-  const [mpesaPhone, setMpesaPhone] = useState('+254');
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [walletConnected, setWalletConnected] = useState(false);
+  const [mpesaPhone, setMpesaPhone] = useState(profile?.phone || '+254');
+  
+  // M-Pesa payment state
+  const [mpesaState, setMpesaState] = useState<MpesaPaymentState>('idle');
+  const [mpesaCheckoutId, setMpesaCheckoutId] = useState<string | null>(null);
+  const [mpesaReceipt, setMpesaReceipt] = useState<string | null>(null);
+  const [mpesaError, setMpesaError] = useState<string | null>(null);
+  const [pollStartTime, setPollStartTime] = useState<number | null>(null);
+  
+  // User vehicles from Supabase
+  const [userVehicles, setUserVehicles] = useState<Vehicle[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(true);
+  
+  // Current booking ID
+  const [bookingId, setBookingId] = useState<string | null>(null);
 
-  const userVehicles = vehicles.filter((v) => v.userId === currentUser?.id || v.userId === 'customer');
   const pkg = servicePackages.find((p) => p.id === selectedPackage);
   const vehicle = userVehicles.find((v) => v.id === selectedVehicle);
+
+  // Fetch user vehicles
+  useEffect(() => {
+    async function fetchVehicles() {
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from('vehicles')
+        .select('id, make, model, license_plate, vehicle_type')
+        .eq('owner_id', user.id);
+      
+      if (!error && data) {
+        setUserVehicles(data);
+      }
+      setLoadingVehicles(false);
+    }
+    
+    fetchVehicles();
+  }, [user]);
 
   // Pre-select from URL params
   useEffect(() => {
@@ -73,6 +122,13 @@ export default function NewBooking() {
     if (detailerId) setServiceType('doorstep');
     if (stationId) setServiceType('station');
   }, [searchParams]);
+
+  // Update phone when profile loads
+  useEffect(() => {
+    if (profile?.phone && mpesaPhone === '+254') {
+      setMpesaPhone(profile.phone);
+    }
+  }, [profile]);
 
   const calculatePrices = () => {
     const basePrice = pkg?.price || 0;
@@ -109,21 +165,36 @@ export default function NewBooking() {
     }
   };
 
-  const handleAddVehicle = () => {
-    if (!newVehiclePlate || !newVehicleNickname) {
+  const handleAddVehicle = async () => {
+    if (!newVehiclePlate || !newVehicleMake || !newVehicleModel || !user) {
       toast({ title: 'Please fill all fields', variant: 'destructive' });
       return;
     }
-    addVehicle({
-      userId: currentUser?.id || 'customer',
-      plate: newVehiclePlate.toUpperCase(),
-      nickname: newVehicleNickname,
-      type: newVehicleType,
-    });
+    
+    const { data, error } = await supabase
+      .from('vehicles')
+      .insert({
+        owner_id: user.id,
+        make: newVehicleMake,
+        model: newVehicleModel,
+        license_plate: newVehiclePlate.toUpperCase(),
+        vehicle_type: newVehicleType,
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      toast({ title: 'Failed to add vehicle', description: error.message, variant: 'destructive' });
+      return;
+    }
+    
+    setUserVehicles([...userVehicles, data]);
+    setSelectedVehicle(data.id);
     toast({ title: 'Vehicle added!' });
     setShowAddVehicle(false);
     setNewVehiclePlate('');
-    setNewVehicleNickname('');
+    setNewVehicleMake('');
+    setNewVehicleModel('');
   };
 
   const handleConfirmBooking = () => {
@@ -131,79 +202,187 @@ export default function NewBooking() {
       setShowCryptoModal(true);
     } else {
       setShowMpesaModal(true);
+      setMpesaState('idle');
+      setMpesaError(null);
     }
   };
 
-  const processPayment = (method: PaymentMethod, reference: string) => {
-    if (!pkg || !vehicle) return;
-
-    const bookingId = createBooking({
-      customerId: currentUser?.id || 'customer',
-      customerName: currentUser?.name || 'Demo Customer',
-      vehicleId: vehicle.id,
-      vehiclePlate: vehicle.plate,
-      vehicleNickname: vehicle.nickname,
-      serviceType,
-      packageId: pkg.id,
-      packageName: pkg.name,
-      basePrice,
-      opsCost,
-      platformFee,
-      totalPrice: total,
-      scheduledDate: isAsap ? new Date().toISOString().split('T')[0] : scheduledDate,
-      scheduledTime: isAsap ? 'ASAP' : scheduledTime,
-      location: serviceType === 'doorstep' ? locationData?.formattedAddress : undefined,
-      locationLat: locationData?.lat,
-      locationLng: locationData?.lng,
-      locationArea: locationData?.area,
-      status: 'payment_confirmed',
-      paymentMethod: method,
-      ...(method === 'crypto' ? { txHash: reference } : { mpesaReceipt: reference }),
-    });
-
-    addPayment({
-      bookingId,
-      amount: total,
-      method,
-      status: 'completed',
-      reference,
-    });
-
-    updateBookingStatus(bookingId, 'payment_confirmed', 'Payment received');
-
-    addEmailLog({
-      to: currentUser?.email || 'customer@email.com',
-      subject: 'Payment Confirmed - TrackWash',
-      type: 'payment_received',
-      bookingId,
-    });
-
-    toast({ title: 'Payment successful!', description: 'Your booking has been confirmed.' });
-    navigate(`/booking/${bookingId}`);
+  const createBookingInSupabase = async (): Promise<string | null> => {
+    if (!user || !pkg || !vehicle) return null;
+    
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert({
+        customer_id: user.id,
+        vehicle_id: vehicle.id,
+        service_type: serviceType === 'doorstep' ? 'at_location' : 'at_branch',
+        scheduled_date: isAsap ? new Date().toISOString().split('T')[0] : scheduledDate,
+        scheduled_time: isAsap ? null : scheduledTime,
+        location_address: locationData?.formattedAddress,
+        location_lat: locationData?.lat,
+        location_lng: locationData?.lng,
+        location_area: locationData?.area,
+        status: 'created',
+        notes: `Package: ${pkg.name}`,
+      })
+      .select('id, booking_code')
+      .single();
+    
+    if (error) {
+      toast({ title: 'Failed to create booking', description: error.message, variant: 'destructive' });
+      return null;
+    }
+    
+    return data.id;
   };
 
-  const handleCryptoPayment = () => {
-    setIsProcessingPayment(true);
-    setTimeout(() => {
-      const txHash = '0x' + Math.random().toString(16).slice(2, 18) + '...';
-      processPayment('crypto', txHash);
-      setShowCryptoModal(false);
-      setIsProcessingPayment(false);
-    }, 2000);
-  };
-
-  const handleMpesaPayment = () => {
-    if (mpesaPhone.length < 12) {
-      toast({ title: 'Invalid phone number', variant: 'destructive' });
+  const handleMpesaPayment = async () => {
+    if (!isValidKenyanPhone(mpesaPhone)) {
+      toast({ title: 'Invalid phone number', description: 'Enter a valid Kenyan phone number', variant: 'destructive' });
       return;
     }
-    setIsProcessingPayment(true);
-    setTimeout(() => {
-      const receipt = 'QK' + Math.random().toString(36).slice(2, 10).toUpperCase();
-      processPayment('mpesa', receipt);
-      setShowMpesaModal(false);
-      setIsProcessingPayment(false);
-    }, 2000);
+    
+    setMpesaState('sending_stk');
+    setMpesaError(null);
+    
+    try {
+      // Create booking first if not exists
+      let currentBookingId = bookingId;
+      if (!currentBookingId) {
+        currentBookingId = await createBookingInSupabase();
+        if (!currentBookingId) {
+          setMpesaState('failed');
+          return;
+        }
+        setBookingId(currentBookingId);
+      }
+      
+      // Initiate STK Push
+      const stkResponse = await mpesaStkPush({
+        bookingId: currentBookingId,
+        phone: mpesaPhone,
+        amountKes: total,
+      });
+      
+      if (!stkResponse.success) {
+        throw new Error(stkResponse.error || 'Failed to initiate payment');
+      }
+      
+      setMpesaCheckoutId(stkResponse.CheckoutRequestID);
+      setMpesaState('waiting');
+      setPollStartTime(Date.now());
+      
+      // Update booking with checkout ID
+      await supabase
+        .from('bookings')
+        .update({ status: 'created' })
+        .eq('id', currentBookingId);
+      
+      // Start polling
+      const result = await pollMpesaStatus(stkResponse.CheckoutRequestID, {
+        maxAttempts: 24, // 60 seconds
+        intervalMs: 2500,
+        onStatusChange: (status) => {
+          if (status.status === 'success') {
+            setMpesaReceipt(status.MpesaReceiptNumber || null);
+          }
+        },
+      });
+      
+      if (result.status === 'success') {
+        setMpesaState('success');
+        setMpesaReceipt(result.MpesaReceiptNumber || null);
+        
+        // Update booking status
+        await supabase
+          .from('bookings')
+          .update({ status: 'paid' })
+          .eq('id', currentBookingId);
+        
+        // Create payment record
+        await supabase
+          .from('payments')
+          .insert({
+            booking_id: currentBookingId,
+            payment_method: 'mpesa',
+            amount_kes: total,
+            status: 'completed',
+            mpesa_checkout_request_id: stkResponse.CheckoutRequestID,
+            mpesa_receipt_number: result.MpesaReceiptNumber,
+            phone_number: normalizePhoneNumber(mpesaPhone),
+            paid_at: new Date().toISOString(),
+          });
+        
+        toast({ title: 'Payment successful!', description: `Receipt: ${result.MpesaReceiptNumber}` });
+        
+        // Navigate to booking detail after short delay
+        setTimeout(() => {
+          navigate(`/booking/${currentBookingId}`);
+        }, 2000);
+        
+      } else if (result.status === 'failed') {
+        setMpesaState('failed');
+        setMpesaError(result.ResultDesc || 'Payment was declined');
+      } else {
+        setMpesaState('timeout');
+        setMpesaError('Payment confirmation timed out. Check your M-Pesa messages.');
+      }
+      
+    } catch (error) {
+      console.error('M-Pesa payment error:', error);
+      setMpesaState('failed');
+      setMpesaError(error instanceof Error ? error.message : 'Payment failed');
+    }
+  };
+
+  const handleResendStk = () => {
+    setMpesaState('idle');
+    setMpesaCheckoutId(null);
+    setMpesaError(null);
+  };
+
+  const handleCryptoPayment = async () => {
+    if (!walletConnected || !walletAddress) {
+      toast({ title: 'Please connect your wallet first', variant: 'destructive' });
+      return;
+    }
+    
+    // Create booking if not exists
+    let currentBookingId = bookingId;
+    if (!currentBookingId) {
+      currentBookingId = await createBookingInSupabase();
+      if (!currentBookingId) return;
+      setBookingId(currentBookingId);
+    }
+    
+    // Save wallet address to booking and create pending payment
+    await supabase
+      .from('bookings')
+      .update({ status: 'created' })
+      .eq('id', currentBookingId);
+    
+    await supabase
+      .from('payments')
+      .insert({
+        booking_id: currentBookingId,
+        payment_method: 'crypto',
+        amount_kes: total,
+        status: 'pending',
+        wallet_address: walletAddress,
+        chain_id: chainId,
+      });
+    
+    toast({ 
+      title: 'Wallet connected!', 
+      description: 'Your wallet address has been saved. Crypto transfers coming soon.',
+    });
+    
+    navigate(`/booking/${currentBookingId}`);
+  };
+
+  const getElapsedTime = () => {
+    if (!pollStartTime) return 0;
+    return Math.floor((Date.now() - pollStartTime) / 1000);
   };
 
   return (
@@ -315,45 +494,51 @@ export default function NewBooking() {
           {currentStep === 3 && (
             <div className="animate-fade-in">
               <h2 className="text-2xl font-bold text-foreground mb-6">Select your vehicle</h2>
-              <div className="grid gap-4">
-                {userVehicles.map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => setSelectedVehicle(v.id)}
-                    className={cn(
-                      'p-4 rounded-xl border-2 text-left transition-all duration-200 flex items-center gap-4',
-                      selectedVehicle === v.id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/30'
-                    )}
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center">
-                      <Car className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground">{v.nickname}</h3>
-                      <p className="text-sm text-muted-foreground">{v.plate} • {v.type}</p>
-                    </div>
-                    {selectedVehicle === v.id && (
-                      <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center">
-                        <Check className="w-4 h-4 text-primary-foreground" />
+              {loadingVehicles ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {userVehicles.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => setSelectedVehicle(v.id)}
+                      className={cn(
+                        'p-4 rounded-xl border-2 text-left transition-all duration-200 flex items-center gap-4',
+                        selectedVehicle === v.id
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/30'
+                      )}
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center">
+                        <Car className="w-6 h-6 text-muted-foreground" />
                       </div>
-                    )}
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-foreground">{v.make} {v.model}</h3>
+                        <p className="text-sm text-muted-foreground">{v.license_plate} • {v.vehicle_type}</p>
+                      </div>
+                      {selectedVehicle === v.id && (
+                        <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center">
+                          <Check className="w-4 h-4 text-primary-foreground" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowAddVehicle(true)}
+                    className="p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/30 text-left transition-all duration-200 flex items-center gap-4"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Plus className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-foreground">Add new vehicle</h3>
+                      <p className="text-sm text-muted-foreground">Register a new car</p>
+                    </div>
                   </button>
-                ))}
-                <button
-                  onClick={() => setShowAddVehicle(true)}
-                  className="p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/30 text-left transition-all duration-200 flex items-center gap-4"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Plus className="w-6 h-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground">Add new vehicle</h3>
-                    <p className="text-sm text-muted-foreground">Register a new car</p>
-                  </div>
-                </button>
-              </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -451,7 +636,7 @@ export default function NewBooking() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Vehicle</span>
-                  <span className="font-medium text-foreground">{vehicle?.nickname} ({vehicle?.plate})</span>
+                  <span className="font-medium text-foreground">{vehicle?.make} {vehicle?.model} ({vehicle?.license_plate})</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">When</span>
@@ -507,10 +692,13 @@ export default function NewBooking() {
                   <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center">
                     <Wallet className="w-6 h-6 text-accent" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="font-semibold text-foreground">Pay with Crypto</p>
-                    <p className="text-sm text-muted-foreground">Core Wallet • USDC</p>
+                    <p className="text-sm text-muted-foreground">Connect wallet • AVAX/USDC</p>
                   </div>
+                  {walletConnected && (
+                    <div className="text-xs text-success">Connected</div>
+                  )}
                 </label>
                 <label
                   className={cn(
@@ -576,21 +764,30 @@ export default function NewBooking() {
           </DialogHeader>
           <div className="space-y-4 pt-4">
             <div>
+              <Label className="text-sm mb-1.5 block">Make</Label>
+              <Input
+                value={newVehicleMake}
+                onChange={(e) => setNewVehicleMake(e.target.value)}
+                placeholder="e.g., Toyota"
+                className="input-field"
+              />
+            </div>
+            <div>
+              <Label className="text-sm mb-1.5 block">Model</Label>
+              <Input
+                value={newVehicleModel}
+                onChange={(e) => setNewVehicleModel(e.target.value)}
+                placeholder="e.g., Camry"
+                className="input-field"
+              />
+            </div>
+            <div>
               <Label className="text-sm mb-1.5 block">License plate</Label>
               <Input
                 value={newVehiclePlate}
                 onChange={(e) => setNewVehiclePlate(e.target.value)}
                 placeholder="KDA 123A"
                 className="input-field uppercase"
-              />
-            </div>
-            <div>
-              <Label className="text-sm mb-1.5 block">Nickname</Label>
-              <Input
-                value={newVehicleNickname}
-                onChange={(e) => setNewVehicleNickname(e.target.value)}
-                placeholder="e.g., Daily Driver"
-                className="input-field"
               />
             </div>
             <Button onClick={handleAddVehicle} className="btn-primary w-full">
@@ -611,39 +808,40 @@ export default function NewBooking() {
               <>
                 <div className="p-4 bg-secondary/30 rounded-xl text-center">
                   <Wallet className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground">Wallet not connected</p>
+                  <p className="text-muted-foreground">Connect your wallet to continue</p>
                 </div>
-                <Button onClick={() => setWalletConnected(true)} className="btn-primary w-full">
-                  Connect Core Wallet
-                </Button>
+                <ConnectWalletButton onConnect={() => {}} />
               </>
             ) : (
               <>
-                <div className="p-4 bg-success/10 rounded-xl text-center">
-                  <Check className="w-8 h-8 text-success mx-auto mb-2" />
-                  <p className="text-success font-medium">Wallet Connected</p>
+                <div className="p-4 bg-success/10 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-5 h-5 text-success" />
+                    <span className="text-success font-medium">Wallet Connected</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground font-mono">
+                    {walletAddress?.slice(0, 10)}...{walletAddress?.slice(-8)}
+                  </p>
                 </div>
-                <div className="h-40 bg-muted rounded-xl flex items-center justify-center">
-                  <p className="text-muted-foreground text-sm">QR Code Placeholder</p>
+                
+                <div className="p-4 bg-secondary/30 rounded-xl">
+                  <p className="text-sm text-muted-foreground mb-2">Amount to pay:</p>
+                  <p className="text-2xl font-bold text-foreground">KES {total.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    ≈ ${(total / 130).toFixed(2)} USD
+                  </p>
                 </div>
-                <Button variant="outline" className="w-full">
-                  <Copy className="w-4 h-4 mr-2" />
-                  Copy payment link
-                </Button>
+                
                 <Button 
                   onClick={handleCryptoPayment} 
                   className="btn-primary w-full"
-                  disabled={isProcessingPayment}
                 >
-                  {isProcessingPayment ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "I've paid (simulate)"
-                  )}
+                  Save Wallet & Continue
                 </Button>
+                
+                <p className="text-xs text-muted-foreground text-center">
+                  Crypto transfers coming soon. Your wallet will be saved for payment.
+                </p>
               </>
             )}
           </div>
@@ -651,40 +849,156 @@ export default function NewBooking() {
       </Dialog>
 
       {/* M-Pesa Payment Modal */}
-      <Dialog open={showMpesaModal} onOpenChange={setShowMpesaModal}>
+      <Dialog open={showMpesaModal} onOpenChange={(open) => {
+        if (!open && mpesaState !== 'waiting') {
+          setShowMpesaModal(false);
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Pay with M-Pesa</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-4">
-            <div>
-              <Label className="text-sm mb-1.5 block">Phone number</Label>
-              <Input
-                value={mpesaPhone}
-                onChange={(e) => setMpesaPhone(e.target.value)}
-                placeholder="+254712345678"
-                className="input-field"
-              />
-            </div>
-            <div className="p-4 bg-secondary/30 rounded-xl">
-              <p className="text-sm text-muted-foreground">
-                An STK push will be sent to your phone. Enter your M-Pesa PIN to complete payment.
-              </p>
-            </div>
-            <Button 
-              onClick={handleMpesaPayment} 
-              className="btn-primary w-full"
-              disabled={isProcessingPayment}
-            >
-              {isProcessingPayment ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Sending STK Push...
-                </>
-              ) : (
-                'Send STK Push'
-              )}
-            </Button>
+            {/* Idle state - enter phone */}
+            {mpesaState === 'idle' && (
+              <>
+                <div>
+                  <Label className="text-sm mb-1.5 block">Phone number</Label>
+                  <Input
+                    value={mpesaPhone}
+                    onChange={(e) => setMpesaPhone(e.target.value)}
+                    placeholder="0712345678"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Accepted formats: 07XXXXXXXX, +2547XXXXXXXX, 2547XXXXXXXX
+                  </p>
+                </div>
+                <div className="p-4 bg-secondary/30 rounded-xl">
+                  <p className="text-sm text-muted-foreground">
+                    Amount: <span className="font-bold text-foreground">KES {total.toLocaleString()}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    An STK push will be sent to your phone. Enter your M-Pesa PIN to complete payment.
+                  </p>
+                </div>
+                <Button 
+                  onClick={handleMpesaPayment} 
+                  className="btn-primary w-full"
+                >
+                  Send STK Push
+                </Button>
+              </>
+            )}
+
+            {/* Sending STK */}
+            {mpesaState === 'sending_stk' && (
+              <div className="py-8 text-center">
+                <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+                <p className="font-medium text-foreground">Sending STK Push...</p>
+                <p className="text-sm text-muted-foreground mt-1">Please wait</p>
+              </div>
+            )}
+
+            {/* Waiting for confirmation */}
+            {mpesaState === 'waiting' && (
+              <div className="py-4 text-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                  <Phone className="w-8 h-8 text-primary animate-pulse" />
+                </div>
+                <p className="font-medium text-foreground">Check your phone</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Enter your M-Pesa PIN to complete payment
+                </p>
+                <div className="mt-4 p-3 bg-secondary/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    Waiting for confirmation... {getElapsedTime()}s
+                  </p>
+                </div>
+                {getElapsedTime() > 30 && (
+                  <Button 
+                    onClick={handleResendStk} 
+                    variant="outline" 
+                    className="mt-4"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Resend STK Push
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Success */}
+            {mpesaState === 'success' && (
+              <div className="py-8 text-center">
+                <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 className="w-10 h-10 text-success" />
+                </div>
+                <p className="font-medium text-foreground text-lg">Payment Successful!</p>
+                {mpesaReceipt && (
+                  <div className="mt-4 p-3 bg-success/10 rounded-lg">
+                    <p className="text-sm text-muted-foreground">Receipt Number</p>
+                    <p className="font-mono font-bold text-foreground">{mpesaReceipt}</p>
+                  </div>
+                )}
+                <p className="text-sm text-muted-foreground mt-4">
+                  Redirecting to your booking...
+                </p>
+              </div>
+            )}
+
+            {/* Failed */}
+            {mpesaState === 'failed' && (
+              <div className="py-4 text-center">
+                <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle className="w-10 h-10 text-destructive" />
+                </div>
+                <p className="font-medium text-foreground">Payment Failed</p>
+                <p className="text-sm text-destructive mt-2">{mpesaError}</p>
+                <div className="flex gap-2 mt-6">
+                  <Button 
+                    onClick={handleResendStk} 
+                    variant="outline" 
+                    className="flex-1"
+                  >
+                    Try Again
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setShowMpesaModal(false);
+                      setPaymentMethod('crypto');
+                      setShowCryptoModal(true);
+                    }} 
+                    variant="outline" 
+                    className="flex-1"
+                  >
+                    Use Crypto
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Timeout */}
+            {mpesaState === 'timeout' && (
+              <div className="py-4 text-center">
+                <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-10 h-10 text-warning" />
+                </div>
+                <p className="font-medium text-foreground">Confirmation Timed Out</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  {mpesaError}
+                </p>
+                <div className="flex gap-2 mt-6">
+                  <Button 
+                    onClick={handleResendStk} 
+                    className="flex-1"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Resend STK
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
