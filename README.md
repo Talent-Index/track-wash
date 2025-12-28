@@ -1,73 +1,76 @@
-# Welcome to your Lovable project
+# TrackWash
 
-## Project info
+On-demand car wash booking platform with M-Pesa and crypto payments.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Environment Variables
 
-## How can I edit this code?
+Create a `.env` file in the root directory with the following variables:
 
-There are several ways of editing your application.
+```env
+# Backend API
+VITE_API_BASE_URL=https://trackwash-api.onrender.com
 
-**Use Lovable**
+# Supabase (auto-configured by Lovable Cloud)
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+VITE_SUPABASE_PROJECT_ID=your_project_id
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+# WalletConnect (for crypto payments)
+VITE_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+```
 
-Changes made via Lovable will be committed automatically to this repo.
+## Features
 
-**Use your preferred IDE**
+- **M-Pesa Payments**: Real Daraja STK Push integration
+- **Crypto Payments**: Connect wallet via WalletConnect
+- **Supabase Auth**: Email/password authentication
+- **Booking Management**: Create, track, and manage car wash bookings
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Manual Test Checklist
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1. **Sign Up / Sign In**
+   - Navigate to `/auth`
+   - Create a new account with email/password
+   - Sign out and sign back in
+   - Session should persist across page refresh
 
-Follow these steps:
+2. **Create Booking**
+   - Navigate to `/booking/new`
+   - Select service type, package, vehicle
+   - Set schedule and location
+   - Proceed to payment
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+3. **Pay with M-Pesa**
+   - Enter phone number (07XXXXXXXX or +2547XXXXXXXX)
+   - Click "Send STK Push"
+   - Check phone for STK prompt
+   - Enter M-Pesa PIN
+   - Wait for confirmation (polling every 2.5s)
+   - Success: Receipt number shown, redirected to booking detail
+   - Failure: Error shown, retry available
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+4. **Connect Wallet (Crypto)**
+   - Click "Connect Wallet" on crypto payment option
+   - Select wallet (MetaMask or WalletConnect)
+   - Approve connection
+   - Wallet address, chain, and balance displayed
+   - Address saved to booking record
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Tech Stack
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+- Vite + React + TypeScript
+- Tailwind CSS + shadcn/ui
+- Supabase (Auth + Database)
+- wagmi + viem (Web3)
+- M-Pesa Daraja API
+
+## Development
+
+```bash
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Deployment
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Open [Lovable](https://lovable.dev) and click on Share -> Publish.
