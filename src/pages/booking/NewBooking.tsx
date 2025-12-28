@@ -26,7 +26,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { servicePackages, ServiceType, PaymentMethod } from '@/store/appStore';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { GoogleMapsProvider, LocationPicker, MapPreview, LocationData } from '@/components/maps';
+import { ManualLocationPicker, ManualLocationData } from '@/components/location';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { mpesaStkPush, pollMpesaStatus, normalizePhoneNumber, isValidKenyanPhone } from '@/lib/api';
@@ -66,7 +66,7 @@ export default function NewBooking() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
   const [isAsap, setIsAsap] = useState(false);
-  const [locationData, setLocationData] = useState<LocationData | null>(null);
+  const [locationData, setLocationData] = useState<ManualLocationData | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('mpesa');
   
   const [showAddVehicle, setShowAddVehicle] = useState(false);
@@ -146,7 +146,7 @@ export default function NewBooking() {
       case 2: return !!selectedPackage;
       case 3: return !!selectedVehicle;
       case 4: return isAsap || (scheduledDate && scheduledTime);
-      case 5: return serviceType === 'station' || !!locationData;
+      case 5: return serviceType === 'station' || (locationData && locationData.estate.trim());
       case 6: return true;
       case 7: return !!paymentMethod;
       default: return false;
@@ -154,6 +154,9 @@ export default function NewBooking() {
   };
 
   const handleNext = () => {
+    if (currentStep === 5 && serviceType === 'doorstep' && locationData?.estate) {
+      toast({ title: 'Location saved', description: locationData.locationText });
+    }
     if (currentStep < 7) {
       setCurrentStep(currentStep + 1);
     }
@@ -218,12 +221,10 @@ export default function NewBooking() {
         service_type: serviceType === 'doorstep' ? 'at_location' : 'at_branch',
         scheduled_date: isAsap ? new Date().toISOString().split('T')[0] : scheduledDate,
         scheduled_time: isAsap ? null : scheduledTime,
-        location_address: locationData?.formattedAddress,
-        location_lat: locationData?.lat,
-        location_lng: locationData?.lng,
-        location_area: locationData?.area,
+        location_address: locationData?.locationText || null,
+        location_area: locationData?.estate || null,
         status: 'created',
-        notes: `Package: ${pkg.name}`,
+        notes: `Package: ${pkg.name}${locationData?.details ? ` | Directions: ${locationData.details}` : ''}`,
       })
       .select('id, booking_code')
       .single();
@@ -602,19 +603,17 @@ export default function NewBooking() {
             </div>
           )}
 
-          {/* Step 5: Location */}
+          {/* Step 5: Location - Manual Entry (No Google Maps) */}
           {currentStep === 5 && (
             <div className="animate-fade-in">
               <h2 className="text-2xl font-bold text-foreground mb-6">
                 {serviceType === 'doorstep' ? 'Where should we come?' : 'Confirm location'}
               </h2>
               {serviceType === 'doorstep' ? (
-                <GoogleMapsProvider>
-                  <LocationPicker
-                    value={locationData}
-                    onChange={setLocationData}
-                  />
-                </GoogleMapsProvider>
+                <ManualLocationPicker
+                  value={locationData}
+                  onChange={setLocationData}
+                />
               ) : (
                 <div className="card-elevated p-4">
                   <p className="text-muted-foreground text-sm">
@@ -645,15 +644,12 @@ export default function NewBooking() {
                   </span>
                 </div>
                 {serviceType === 'doorstep' && locationData && (
-                  <>
-                    <div className="flex justify-between items-start">
-                      <span className="text-muted-foreground">Location</span>
-                      <span className="font-medium text-foreground text-right max-w-[60%]">{locationData.formattedAddress}</span>
-                    </div>
-                    <div className="pt-2">
-                      <MapPreview lat={locationData.lat} lng={locationData.lng} height="120px" />
-                    </div>
-                  </>
+                  <div className="flex justify-between items-start">
+                    <span className="text-muted-foreground">Location</span>
+                    <span className="font-medium text-foreground text-right max-w-[60%]">
+                      {locationData.locationText}
+                    </span>
+                  </div>
                 )}
                 <div className="border-t border-border pt-4 space-y-2">
                   <div className="flex justify-between items-center">
