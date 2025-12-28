@@ -18,6 +18,7 @@ import History from "./pages/History";
 import Profile from "./pages/Profile";
 import DetailerHome from "./pages/detailer/DetailerHome";
 import DetailerJobs from "./pages/detailer/DetailerJobs";
+import DetailerOnboarding from "./pages/detailer/DetailerOnboarding";
 import AdminHome from "./pages/admin/AdminHome";
 import AdminBookings from "./pages/admin/AdminBookings";
 import AdminPayouts from "./pages/admin/AdminPayouts";
@@ -70,7 +71,7 @@ function AppRoutes() {
         <Route path="/detailer/jobs" element={<ProtectedRoute allowedRoles={['operator']}><DetailerJobs /></ProtectedRoute>} />
         <Route path="/detailer/job/:id" element={<ProtectedRoute allowedRoles={['operator']}><BookingDetail /></ProtectedRoute>} />
         <Route path="/detailer/earnings" element={<ProtectedRoute allowedRoles={['operator']}><DetailerHome /></ProtectedRoute>} />
-        <Route path="/detailer/onboarding" element={<Auth />} />
+        <Route path="/detailer/onboarding" element={<DetailerOnboarding />} />
         
         {/* Admin */}
         <Route path="/admin/home" element={<ProtectedRoute allowedRoles={['admin', 'owner']}><AdminHome /></ProtectedRoute>} />
