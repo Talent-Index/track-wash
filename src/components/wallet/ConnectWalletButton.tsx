@@ -148,41 +148,47 @@ export function ConnectWalletButton({ onConnect, compact = false }: ConnectWalle
       </Button>
 
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby="wallet-connect-description">
           <DialogHeader>
             <DialogTitle className="text-center">Connect Wallet</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 pt-4">
-            <p className="text-sm text-muted-foreground text-center mb-4">
+            <p id="wallet-connect-description" className="text-sm text-muted-foreground text-center mb-4">
               Choose your preferred wallet to connect
             </p>
-            {connectors.map((connector, index) => (
-              <Button
-                key={connector.uid}
-                onClick={() => handleConnect(index)}
-                variant="outline"
-                className="w-full justify-start gap-3 h-14"
-                disabled={isPending}
-              >
-                {connector.name === 'WalletConnect' ? (
-                  <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
-                    <Wallet className="w-4 h-4 text-white" />
+            {connectors.length === 0 ? (
+              <p className="text-sm text-destructive text-center py-4">
+                No wallet connectors available. Please install a wallet extension.
+              </p>
+            ) : (
+              connectors.map((connector, index) => (
+                <Button
+                  key={connector.uid}
+                  onClick={() => handleConnect(index)}
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-14"
+                  disabled={isPending}
+                >
+                  {connector.name === 'WalletConnect' ? (
+                    <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                      <Wallet className="w-4 h-4 text-white" />
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
+                      <Wallet className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  <div className="text-left">
+                    <p className="font-medium">{connector.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {connector.name === 'WalletConnect' 
+                        ? 'Scan with mobile wallet' 
+                        : 'Browser extension'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
-                    <Wallet className="w-4 h-4 text-white" />
-                  </div>
-                )}
-                <div className="text-left">
-                  <p className="font-medium">{connector.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {connector.name === 'WalletConnect' 
-                      ? 'Scan with mobile wallet' 
-                      : 'Browser extension'}
-                  </p>
-                </div>
-              </Button>
-            ))}
+                </Button>
+              ))
+            )}
             <p className="text-xs text-muted-foreground text-center mt-4">
               By connecting, you agree to our Terms of Service
             </p>
