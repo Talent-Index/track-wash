@@ -63,43 +63,86 @@ export function isValidKenyanPhone(phone: string): boolean {
  * Initiate M-Pesa STK Push
  */
 export async function mpesaStkPush(data: StkPushRequest): Promise<StkPushResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/payments/mpesa/stkpush`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      bookingId: data.bookingId,
-      phone: normalizePhoneNumber(data.phone),
-      amountKes: data.amountKes,
-    }),
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/payments/mpesa/stkpush`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: data.bookingId,
+        phone: normalizePhoneNumber(data.phone),
+        amountKes: data.amountKes,
+      }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || 'Failed to initiate STK push');
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const errorMessage = result?.error || result?.message || result?.ResponseDescription || `HTTP ${response.status}: Request failed`;
+      const errorCode = result?.errorCode || result?.ResponseCode || response.status.toString();
+      
+      // Log detailed error in development
+      if (import.meta.env.DEV) {
+        console.error('M-Pesa STK Push Error:', { status: response.status, result });
+      }
+      
+      throw new Error(`[${errorCode}] ${errorMessage}`);
+    }
+
+    if (!result) {
+      throw new Error('Empty response from M-Pesa API');
+    }
+
+    if (result.error || result.ResponseCode !== '0') {
+      const errorMessage = result.error || result.ResponseDescription || 'STK push request failed';
+      throw new Error(errorMessage);
+    }
+
+    return result;
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to payment server. Please check your connection.');
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 /**
  * Check M-Pesa payment status
  */
 export async function mpesaStatus(checkoutRequestId: string): Promise<MpesaStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/payments/mpesa/status/${checkoutRequestId}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/payments/mpesa/status/${checkoutRequestId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || 'Failed to check payment status');
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const errorMessage = result?.error || result?.message || `HTTP ${response.status}: Status check failed`;
+      
+      if (import.meta.env.DEV) {
+        console.error('M-Pesa Status Error:', { status: response.status, result });
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    if (!result) {
+      throw new Error('Empty response from status API');
+    }
+
+    return result;
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to payment server.');
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 /**

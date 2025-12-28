@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Car, User, Shield, ChevronRight, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -45,12 +45,31 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   
   const navigate = useNavigate();
-  const { signIn, signUp, isAuthenticated } = useAuth();
+  const { signIn, signUp, isAuthenticated, loading } = useAuth();
 
-  // Redirect if already authenticated
+  // Redirect authenticated users to home
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
+
+  // Show loading while checking auth state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Don't render form if already authenticated (will redirect)
   if (isAuthenticated) {
-    navigate('/');
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   const validateInputs = (): boolean => {
