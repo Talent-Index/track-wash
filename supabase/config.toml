@@ -1,1 +1,16 @@
 project_id = "ehqnltlehxkgiutwgxmi"
+
+[functions.mpesa-stk-push]
+verify_jwt = false
+
+[functions.mpesa-callback]
+verify_jwt = false
+
+[functions.mpesa-status]
+verify_jwt = false
+
+[functions.send-notification]
+verify_jwt = false
+
+[functions.crypto-payment]
+verify_jwt = false
