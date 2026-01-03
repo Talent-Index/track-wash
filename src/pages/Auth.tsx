@@ -1,327 +1,306 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Car, User, Shield, ChevronRight, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/contexts/AuthContext';
-import { toast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
-import { z } from 'zod';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { toast } from 'sonner';
+import { Car, ArrowRight, Loader2 } from 'lucide-react';
 
-type SelectedRole = 'customer' | 'detailer' | 'admin';
-
-const roles: { role: SelectedRole; icon: React.ReactNode; title: string; description: string }[] = [
-  {
-    role: 'customer',
-    icon: <User className="w-6 h-6" />,
-    title: 'Customer',
-    description: 'Book washes, track progress, earn rewards',
-  },
-  {
-    role: 'detailer',
-    icon: <Sparkles className="w-6 h-6" />,
-    title: 'Detailer',
-    description: 'Accept jobs, earn money, build reputation',
-  },
-  {
-    role: 'admin',
-    icon: <Shield className="w-6 h-6" />,
-    title: 'Admin',
-    description: 'Manage bookings, payouts, and analytics',
-  },
-];
-
-const emailSchema = z.string().email('Please enter a valid email address');
-const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
+type UserRole = 'customer' | 'owner';
 
 export default function Auth() {
-  const [selectedRole, setSelectedRole] = useState<SelectedRole>('customer');
-  const [isLogin, setIsLogin] = useState(true);
+  const navigate = useNavigate();
+  const { isAuthenticated, loading: authLoading, role } = useAuth();
+  
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const navigate = useNavigate();
-  const { signIn, signUp, isAuthenticated, loading } = useAuth();
+  const [selectedRole, setSelectedRole] = useState<UserRole>('customer');
 
-  // Redirect authenticated users to home
+  // Redirect authenticated users based on role
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/', { replace: true });
+    if (!authLoading && isAuthenticated && role) {
+      switch (role) {
+        case 'owner':
+        case 'admin':
+          navigate('/owner/dashboard', { replace: true });
+          break;
+        case 'operator':
+          navigate('/operator/dashboard', { replace: true });
+          break;
+        case 'customer':
+        default:
+          navigate('/customer/dashboard', { replace: true });
+          break;
+      }
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, authLoading, role, navigate]);
 
-  // Show loading while checking auth state
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // Don't render form if already authenticated (will redirect)
-  if (isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  const validateInputs = (): boolean => {
-    setError(null);
-    
-    try {
-      emailSchema.parse(email);
-    } catch {
-      setError('Please enter a valid email address');
-      return false;
-    }
-    
-    try {
-      passwordSchema.parse(password);
-    } catch {
-      setError('Password must be at least 6 characters');
-      return false;
-    }
-    
-    if (!isLogin && !fullName.trim()) {
-      setError('Please enter your full name');
-      return false;
-    }
-    
-    return true;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateInputs()) return;
-    
-    setIsLoading(true);
-    setError(null);
+    if (!email || !password || !fullName) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
 
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
     try {
-      if (isLogin) {
-        const { error } = await signIn(email, password);
-        
-        if (error) {
-          if (error.message.includes('Invalid login credentials')) {
-            setError('Invalid email or password. Please try again.');
-          } else if (error.message.includes('Email not confirmed')) {
-            setError('Please verify your email before signing in.');
-          } else {
-            setError(error.message);
-          }
-          return;
-        }
-        
-        toast({ title: 'Welcome back!', description: 'Successfully signed in' });
-        navigate('/');
+      const redirectUrl = `${window.location.origin}/`;
+      
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            full_name: fullName,
+            phone: phone || null,
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      // If user was created, update their role if they selected owner
+      if (data.user && selectedRole === 'owner') {
+        // Wait a moment for the trigger to create the user_roles entry
+        setTimeout(async () => {
+          await supabase
+            .from('user_roles')
+            .update({ role: 'owner' })
+            .eq('user_id', data.user!.id);
+        }, 500);
+      }
+
+      toast.success('Account created! You can now sign in.');
+    } catch (error: any) {
+      if (error.message.includes('already registered')) {
+        toast.error('This email is already registered. Please sign in.');
       } else {
-        const { error } = await signUp(email, password, {
-          full_name: fullName,
-          phone: phone || undefined,
-        });
-        
-        if (error) {
-          if (error.message.includes('already registered')) {
-            setError('This email is already registered. Please sign in instead.');
-          } else {
-            setError(error.message);
-          }
-          return;
-        }
-        
-        toast({ 
-          title: 'Account created!', 
-          description: 'You can now sign in with your credentials.',
-        });
-        
-        // Auto sign in after signup
-        const { error: signInError } = await signIn(email, password);
-        if (!signInError) {
-          navigate('/');
-        } else {
-          setIsLogin(true);
-        }
+        toast.error(error.message || 'Failed to create account');
       }
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email || !password) {
+      toast.error('Please enter your email and password');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      
+      // The useEffect will handle the redirect
+    } catch (error: any) {
+      if (error.message.includes('Invalid login')) {
+        toast.error('Invalid email or password');
+      } else {
+        toast.error(error.message || 'Failed to sign in');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen gradient-hero flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+        {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-4 shadow-glow">
+          <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-4">
             <Car className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {isLogin ? 'Welcome back' : 'Join TrackWash'}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {isLogin ? 'Sign in to continue' : 'Create your account'}
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">Track Wash</h1>
+          <p className="text-muted-foreground">Car Wash Management Platform</p>
         </div>
 
-        <div className="card-elevated p-6">
-          {/* Role Selection - Only show for signup */}
-          {!isLogin && (
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-foreground mb-3">
-                I am a
-              </label>
-              <div className="grid gap-3">
-                {roles.slice(0, 2).map((r) => (
-                  <button
-                    key={r.role}
-                    type="button"
-                    onClick={() => setSelectedRole(r.role)}
-                    className={cn(
-                      'flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 text-left',
-                      selectedRole === r.role
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/30'
-                    )}
+        <Card className="card-elevated">
+          <Tabs defaultValue="signin" className="w-full">
+            <CardHeader className="pb-4">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="signin">Sign In</TabsTrigger>
+                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              </TabsList>
+            </CardHeader>
+
+            <CardContent>
+              <TabsContent value="signin" className="mt-0">
+                <form onSubmit={handleSignIn} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signin-email">Email</Label>
+                    <Input
+                      id="signin-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="input-field"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="signin-password">Password</Label>
+                    <Input
+                      id="signin-password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="input-field"
+                      required
+                    />
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    disabled={loading}
+                    className="w-full btn-primary"
                   >
-                    <div
-                      className={cn(
-                        'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-                        selectedRole === r.role
-                          ? 'gradient-primary text-primary-foreground'
-                          : 'bg-secondary text-muted-foreground'
-                      )}
-                    >
-                      {r.icon}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-foreground">{r.title}</p>
-                      <p className="text-sm text-muted-foreground">{r.description}</p>
-                    </div>
-                    {selectedRole === r.role && (
-                      <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center">
-                        <ChevronRight className="w-4 h-4 text-primary-foreground" />
-                      </div>
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        Sign In
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </>
                     )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+                  </Button>
+                </form>
+              </TabsContent>
 
-          {error && (
-            <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-              <p className="text-sm text-destructive">{error}</p>
-            </div>
-          )}
+              <TabsContent value="signup" className="mt-0">
+                <form onSubmit={handleSignUp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-name">Full Name</Label>
+                    <Input
+                      id="signup-name"
+                      type="text"
+                      placeholder="John Doe"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="input-field"
+                      required
+                    />
+                  </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">
-                    Full Name
-                  </label>
-                  <Input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="John Doe"
-                    className="input-field"
-                    disabled={isLoading}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">
-                    Phone (optional)
-                  </label>
-                  <Input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+254712345678"
-                    className="input-field"
-                    disabled={isLoading}
-                  />
-                </div>
-              </>
-            )}
-            
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Email
-              </label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                className="input-field"
-                disabled={isLoading}
-                required
-              />
-            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-email">Email</Label>
+                    <Input
+                      id="signup-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="input-field"
+                      required
+                    />
+                  </div>
 
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Password
-              </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="input-field"
-                disabled={isLoading}
-                required
-                minLength={6}
-              />
-            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-phone">Phone (Optional)</Label>
+                    <Input
+                      id="signup-phone"
+                      type="tel"
+                      placeholder="+254 7XX XXX XXX"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
 
-            <Button 
-              type="submit" 
-              className="btn-primary w-full text-base py-3 h-auto"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  {isLogin ? 'Signing in...' : 'Creating account...'}
-                </>
-              ) : (
-                <>
-                  {isLogin ? 'Sign In' : 'Create Account'}
-                  <ChevronRight className="w-5 h-5 ml-1" />
-                </>
-              )}
-            </Button>
-          </form>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-password">Password</Label>
+                    <Input
+                      id="signup-password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="input-field"
+                      required
+                      minLength={6}
+                    />
+                  </div>
 
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setError(null);
-              }}
-              className="text-sm text-muted-foreground hover:text-primary transition-colors"
-              disabled={isLoading}
-            >
-              {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-            </button>
-          </div>
-        </div>
+                  <div className="space-y-3">
+                    <Label>I am a:</Label>
+                    <RadioGroup 
+                      value={selectedRole} 
+                      onValueChange={(v) => setSelectedRole(v as UserRole)}
+                      className="flex gap-4"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="customer" id="customer" />
+                        <Label htmlFor="customer" className="font-normal cursor-pointer">
+                          Customer
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="owner" id="owner" />
+                        <Label htmlFor="owner" className="font-normal cursor-pointer">
+                          Car Wash Owner
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          By continuing, you agree to our Terms of Service and Privacy Policy
-        </p>
+                  <Button 
+                    type="submit" 
+                    disabled={loading}
+                    className="w-full btn-primary"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        Create Account
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+
+                <p className="text-xs text-center text-muted-foreground mt-4">
+                  Operators: Use an invite code from your manager after signing up.
+                </p>
+              </TabsContent>
+            </CardContent>
+          </Tabs>
+        </Card>
       </div>
     </div>
   );
