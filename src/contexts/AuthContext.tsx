@@ -145,7 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string, 
     password: string, 
     metadata?: { full_name?: string; phone?: string; role?: UserRole }
-  ) => {
+  ): Promise<{ error: AuthError | null; user?: User }> => {
+    setLoading(true);
     const redirectUrl = `${window.location.origin}/`;
     
     const { data, error } = await supabase.auth.signUp({
@@ -160,39 +161,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
     
-    // If signup successful and role is specified, update it
-    if (!error && data.user && metadata?.role && metadata.role !== 'customer') {
-      // Wait for the trigger to create the user_roles entry, then update it
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      const updateRole = async (): Promise<boolean> => {
-        const { error: updateError } = await supabase
-          .from('user_roles')
-          .update({ role: metadata.role })
-          .eq('user_id', data.user!.id);
-        
-        return !updateError;
-      };
-      
-      // Retry with exponential backoff
-      const tryUpdate = async (): Promise<void> => {
-        while (attempts < maxAttempts) {
-          attempts++;
-          const success = await updateRole();
-          if (success) return;
-          await new Promise(resolve => setTimeout(resolve, 100 * attempts));
-        }
-      };
-      
-      // Run role update in background
-      tryUpdate();
+    if (error) {
+      setLoading(false);
+      return { error, user: undefined };
     }
     
-    return { error, user: data.user || undefined };
+    // If signup successful and role is specified (and not customer which is default)
+    if (data.user && metadata?.role && metadata.role !== 'customer') {
+      // Wait a bit for the trigger to create the user_roles entry, then update it
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Try to update the role
+      const { error: updateError } = await supabase
+        .from('user_roles')
+        .update({ role: metadata.role })
+        .eq('user_id', data.user.id);
+      
+      if (updateError) {
+        console.warn('Failed to update role, will retry on next load:', updateError);
+      }
+    }
+    
+    // Reload user data to get the updated role
+    if (data.user) {
+      await loadUserData(data.user.id);
+    }
+    
+    setLoading(false);
+    return { error: null, user: data.user || undefined };
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<{ error: AuthError | null }> => {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -202,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       setLoading(false);
     }
-    // If successful, onAuthStateChange will handle the rest
+    // If successful, onAuthStateChange will handle loading state
     
     return { error };
   };

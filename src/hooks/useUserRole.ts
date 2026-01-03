@@ -95,8 +95,12 @@ export function useUserRole() {
       fetchRoleData();
     } else if (initialized && !authLoading && !user) {
       setLoading(false);
+      setHasFetched(false);
       setBusiness(null);
       setOperatorInfo(null);
+    } else if (initialized && !authLoading && user && !role) {
+      // User exists but no role yet - still loading
+      setLoading(true);
     }
   }, [user, role, authLoading, initialized, fetchRoleData]);
 

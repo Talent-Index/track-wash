@@ -15,7 +15,7 @@ import { Car, ArrowRight, Loader2 } from 'lucide-react';
 export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, loading: authLoading, initialized, role, signIn, signUp, refreshProfile } = useAuth();
+  const { isAuthenticated, loading: authLoading, initialized, role, signIn, signUp } = useAuth();
   const { business, operatorInfo, loading: roleDataLoading } = useUserRole();
   
   const [loading, setLoading] = useState(false);
@@ -65,25 +65,27 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const { error } = await signUp(email, password, {
+      const { error, user } = await signUp(email, password, {
         full_name: fullName,
         phone: phone || undefined,
         role: selectedRole as UserRole,
       });
 
       if (error) {
-        if (error.message.includes('already registered')) {
-          toast.error('This email is already registered. Please sign in.');
+        if (error.message.includes('already registered') || error.message.includes('User already registered')) {
+          toast.error('This email is already registered. Please sign in instead.');
+        } else if (error.message.includes('Password')) {
+          toast.error('Password must be at least 6 characters');
         } else {
           toast.error(error.message || 'Failed to create account');
         }
         return;
       }
 
-      toast.success('Account created successfully!');
-      
-      // Refresh profile to get updated role
-      await refreshProfile();
+      if (user) {
+        toast.success('Account created successfully!');
+        // The AuthContext will handle loading the user data and the useEffect will handle redirect
+      }
     } catch (error: any) {
       toast.error(error.message || 'Failed to create account');
     } finally {
@@ -104,8 +106,13 @@ export default function Auth() {
       const { error } = await signIn(email, password);
 
       if (error) {
-        if (error.message.includes('Invalid login')) {
-          toast.error('Invalid email or password');
+        // Provide clear error messages
+        if (error.message.includes('Invalid login credentials')) {
+          toast.error('Invalid email or password. Please check your credentials and try again.');
+        } else if (error.message.includes('Email not confirmed')) {
+          toast.error('Please verify your email before signing in.');
+        } else if (error.message.includes('User not found')) {
+          toast.error('No account found with this email. Please sign up first.');
         } else {
           toast.error(error.message || 'Failed to sign in');
         }
