@@ -3,11 +3,12 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { Web3Provider } from "@/components/providers/Web3Provider";
+import { ProtectedRoute, OwnerRoute, OperatorRoute, CustomerRoute } from "@/components/auth/ProtectedRoute";
+import { RoleBasedRedirect } from "@/components/auth/RoleBasedRedirect";
 
 // Pages
-import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -28,99 +29,38 @@ import Profile from "./pages/Profile";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ 
-  children, 
-  allowedRoles 
-}: { 
-  children: React.ReactNode; 
-  allowedRoles?: string[] 
-}) {
-  const { isAuthenticated, role, loading } = useAuth();
-  
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/auth" replace />;
-  }
-  
-  if (allowedRoles && role && !allowedRoles.includes(role)) {
-    // Redirect to appropriate dashboard based on role
-    if (role === 'owner' || role === 'admin') {
-      return <Navigate to="/owner/dashboard" replace />;
-    } else if (role === 'operator') {
-      return <Navigate to="/operator/dashboard" replace />;
-    } else {
-      return <Navigate to="/customer/dashboard" replace />;
-    }
-  }
-  
-  return <>{children}</>;
-}
-
-function RoleBasedRedirect() {
-  const { isAuthenticated, role, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Landing />;
-  }
-
-  // Redirect based on role
-  switch (role) {
-    case 'owner':
-    case 'admin':
-      return <Navigate to="/owner/dashboard" replace />;
-    case 'operator':
-      return <Navigate to="/operator/dashboard" replace />;
-    case 'customer':
-    default:
-      return <Navigate to="/customer/dashboard" replace />;
-  }
-}
-
 function AppRoutes() {
   return (
     <Routes>
       {/* Public routes */}
       <Route path="/" element={<RoleBasedRedirect />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/login" element={<Navigate to="/auth" replace />} />
+      <Route path="/signup" element={<Navigate to="/auth" replace />} />
       
       {/* Owner routes */}
       <Route 
         path="/owner/onboarding" 
         element={
-          <ProtectedRoute allowedRoles={['owner', 'admin']}>
+          <OwnerRoute>
             <OwnerOnboarding />
-          </ProtectedRoute>
+          </OwnerRoute>
         } 
       />
       <Route 
         path="/owner/dashboard" 
         element={
-          <ProtectedRoute allowedRoles={['owner', 'admin']}>
+          <OwnerRoute>
             <OwnerDashboard />
-          </ProtectedRoute>
+          </OwnerRoute>
         } 
       />
       <Route 
         path="/owner/operators" 
         element={
-          <ProtectedRoute allowedRoles={['owner', 'admin']}>
+          <OwnerRoute>
             <OperatorManagement />
-          </ProtectedRoute>
+          </OwnerRoute>
         } 
       />
       
@@ -136,9 +76,9 @@ function AppRoutes() {
       <Route 
         path="/operator/dashboard" 
         element={
-          <ProtectedRoute allowedRoles={['operator']}>
+          <OperatorRoute>
             <OperatorDashboard />
-          </ProtectedRoute>
+          </OperatorRoute>
         } 
       />
       
@@ -146,9 +86,9 @@ function AppRoutes() {
       <Route 
         path="/customer/dashboard" 
         element={
-          <ProtectedRoute allowedRoles={['customer']}>
+          <CustomerRoute>
             <CustomerDashboard />
-          </ProtectedRoute>
+          </CustomerRoute>
         } 
       />
       
