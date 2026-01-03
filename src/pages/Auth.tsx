@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { getRoleDashboard, getRoleOnboarding } from '@/components/auth/ProtectedRoute';
+import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,37 +12,43 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from 'sonner';
 import { Car, ArrowRight, Loader2 } from 'lucide-react';
 
-type UserRole = 'customer' | 'owner';
-
 export default function Auth() {
   const navigate = useNavigate();
-  const { isAuthenticated, loading: authLoading, role } = useAuth();
+  const location = useLocation();
+  const { isAuthenticated, loading: authLoading, initialized, role, signIn, signUp, refreshProfile } = useAuth();
+  const { business, operatorInfo, loading: roleDataLoading } = useUserRole();
   
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [selectedRole, setSelectedRole] = useState<UserRole>('customer');
+  const [selectedRole, setSelectedRole] = useState<'customer' | 'owner'>('customer');
 
-  // Redirect authenticated users based on role
+  // Get the intended destination from location state
+  const from = (location.state as any)?.from?.pathname || null;
+
+  // Redirect authenticated users based on role and onboarding status
   useEffect(() => {
-    if (!authLoading && isAuthenticated && role) {
-      switch (role) {
-        case 'owner':
-        case 'admin':
-          navigate('/owner/dashboard', { replace: true });
-          break;
-        case 'operator':
-          navigate('/operator/dashboard', { replace: true });
-          break;
-        case 'customer':
-        default:
-          navigate('/customer/dashboard', { replace: true });
-          break;
-      }
+    if (!initialized || authLoading || roleDataLoading) return;
+    if (!isAuthenticated || !role) return;
+
+    // Determine where to redirect
+    let redirectPath: string;
+
+    if (from) {
+      // If there was an intended destination, go there
+      redirectPath = from;
+    } else if (role === 'owner' || role === 'admin') {
+      redirectPath = business ? getRoleDashboard(role) : getRoleOnboarding(role);
+    } else if (role === 'operator') {
+      redirectPath = operatorInfo ? getRoleDashboard(role) : getRoleOnboarding(role);
+    } else {
+      redirectPath = getRoleDashboard(role);
     }
-  }, [isAuthenticated, authLoading, role, navigate]);
+
+    navigate(redirectPath, { replace: true });
+  }, [isAuthenticated, initialized, authLoading, roleDataLoading, role, business, operatorInfo, navigate, from]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,40 +65,27 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            full_name: fullName,
-            phone: phone || null,
-          },
-        },
+      const { error } = await signUp(email, password, {
+        full_name: fullName,
+        phone: phone || undefined,
+        role: selectedRole as UserRole,
       });
 
-      if (error) throw error;
-
-      // If user was created, update their role if they selected owner
-      if (data.user && selectedRole === 'owner') {
-        // Wait a moment for the trigger to create the user_roles entry
-        setTimeout(async () => {
-          await supabase
-            .from('user_roles')
-            .update({ role: 'owner' })
-            .eq('user_id', data.user!.id);
-        }, 500);
+      if (error) {
+        if (error.message.includes('already registered')) {
+          toast.error('This email is already registered. Please sign in.');
+        } else {
+          toast.error(error.message || 'Failed to create account');
+        }
+        return;
       }
 
-      toast.success('Account created! You can now sign in.');
+      toast.success('Account created successfully!');
+      
+      // Refresh profile to get updated role
+      await refreshProfile();
     } catch (error: any) {
-      if (error.message.includes('already registered')) {
-        toast.error('This email is already registered. Please sign in.');
-      } else {
-        toast.error(error.message || 'Failed to create account');
-      }
+      toast.error(error.message || 'Failed to create account');
     } finally {
       setLoading(false);
     }
@@ -107,30 +101,43 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { error } = await signIn(email, password);
 
-      if (error) throw error;
-      
-      // The useEffect will handle the redirect
-    } catch (error: any) {
-      if (error.message.includes('Invalid login')) {
-        toast.error('Invalid email or password');
-      } else {
-        toast.error(error.message || 'Failed to sign in');
+      if (error) {
+        if (error.message.includes('Invalid login')) {
+          toast.error('Invalid email or password');
+        } else {
+          toast.error(error.message || 'Failed to sign in');
+        }
       }
+      // Redirect will be handled by useEffect
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to sign in');
     } finally {
       setLoading(false);
     }
   };
 
   // Show loading while checking auth
-  if (authLoading) {
+  if (!initialized || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If already authenticated, show loading while redirecting
+  if (isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Redirecting...</p>
+        </div>
       </div>
     );
   }
@@ -169,6 +176,7 @@ export default function Auth() {
                       onChange={(e) => setEmail(e.target.value)}
                       className="input-field"
                       required
+                      disabled={loading}
                     />
                   </div>
 
@@ -182,6 +190,7 @@ export default function Auth() {
                       onChange={(e) => setPassword(e.target.value)}
                       className="input-field"
                       required
+                      disabled={loading}
                     />
                   </div>
 
@@ -214,6 +223,7 @@ export default function Auth() {
                       onChange={(e) => setFullName(e.target.value)}
                       className="input-field"
                       required
+                      disabled={loading}
                     />
                   </div>
 
@@ -227,6 +237,7 @@ export default function Auth() {
                       onChange={(e) => setEmail(e.target.value)}
                       className="input-field"
                       required
+                      disabled={loading}
                     />
                   </div>
 
@@ -239,6 +250,7 @@ export default function Auth() {
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="input-field"
+                      disabled={loading}
                     />
                   </div>
 
@@ -253,6 +265,7 @@ export default function Auth() {
                       className="input-field"
                       required
                       minLength={6}
+                      disabled={loading}
                     />
                   </div>
 
@@ -260,8 +273,9 @@ export default function Auth() {
                     <Label>I am a:</Label>
                     <RadioGroup 
                       value={selectedRole} 
-                      onValueChange={(v) => setSelectedRole(v as UserRole)}
+                      onValueChange={(v) => setSelectedRole(v as 'customer' | 'owner')}
                       className="flex gap-4"
+                      disabled={loading}
                     >
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="customer" id="customer" />
