@@ -274,6 +274,47 @@ export type Database = {
           },
         ]
       }
+      loyalty_accounts: {
+        Row: {
+          business_id: string
+          created_at: string
+          customer_id: string
+          free_washes_earned: number
+          free_washes_redeemed: number
+          id: string
+          updated_at: string
+          washes_count: number
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          customer_id: string
+          free_washes_earned?: number
+          free_washes_redeemed?: number
+          id?: string
+          updated_at?: string
+          washes_count?: number
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          customer_id?: string
+          free_washes_earned?: number
+          free_washes_redeemed?: number
+          id?: string
+          updated_at?: string
+          washes_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_accounts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_logs: {
         Row: {
           booking_id: string | null
@@ -314,6 +355,47 @@ export type Database = {
             columns: ["booking_id"]
             isOneToOne: false
             referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      operator_invites: {
+        Row: {
+          branch_id: string
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          invite_code: string
+          used_at: string | null
+          used_by: string | null
+        }
+        Insert: {
+          branch_id: string
+          created_at?: string
+          created_by: string
+          expires_at: string
+          id?: string
+          invite_code: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Update: {
+          branch_id?: string
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          invite_code?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operator_invites_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
             referencedColumns: ["id"]
           },
         ]
@@ -552,12 +634,70 @@ export type Database = {
         }
         Relationships: []
       }
+      washes: {
+        Row: {
+          amount: number
+          branch_id: string
+          created_at: string
+          customer_id: string | null
+          id: string
+          notes: string | null
+          operator_id: string
+          payment_method: string
+          service_type: string
+          vehicle_plate: string | null
+          vehicle_type: string | null
+        }
+        Insert: {
+          amount: number
+          branch_id: string
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          notes?: string | null
+          operator_id: string
+          payment_method?: string
+          service_type: string
+          vehicle_plate?: string | null
+          vehicle_type?: string | null
+        }
+        Update: {
+          amount?: number
+          branch_id?: string
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          notes?: string | null
+          operator_id?: string
+          payment_method?: string
+          service_type?: string
+          vehicle_plate?: string | null
+          vehicle_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "washes_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "washes_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "operators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       generate_booking_code: { Args: never; Returns: string }
+      generate_invite_code: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["user_role"]
